@@ -5,6 +5,8 @@ import com.querydsl.core.Tuple;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.PersistenceUnit;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -246,6 +248,7 @@ public class QuerydslBasicTest {
     public void theta_join() throws Exception{
         em.persist(new Member("teamA"));
         em.persist(new Member("teamB"));
+        em.persist(new Member("teamC"));
 
         List<Member> result = queryFactory
                 .select(member)
@@ -256,6 +259,30 @@ public class QuerydslBasicTest {
         assertThat(result)
                 .extracting("username")
                 .containsExactly("teamA","teamB");
+
+    }
+    /**
+     * 연관관계가 없는 엔티티 외부 조인
+     * 회원의 이름이 팀 이름과 같은 회원 조회
+     * 아우터 조인이 불가능함
+     */
+    @Test
+    public void join_on_no_relation() throws Exception{
+        em.persist(new Member("teamA"));
+        em.persist(new Member("teamB"));
+        em.persist(new Member("teamC"));
+
+        List<Tuple> result = queryFactory
+                .select(member,team)
+                .from(member)
+                //원래는 leftJoin(member.team) 이어야 하지만 >이 경우 id값을 기준으로 조인을 하지만
+                //막조인의 경우 그냥 leftJoin(team)을 사용한다. > 이 경우 이름으로만 조인 대상이 필터링된다.
+                .leftJoin(team).on(member.username.eq(team.name))
+                .fetch();
+
+        for(Tuple tuple : result){
+            System.out.println("t="+tuple);
+        }
 
     }
 
@@ -274,5 +301,23 @@ public class QuerydslBasicTest {
         for (Tuple tuple : result){
             System.out.println("tuple = "+tuple);
         }
+    }
+
+    @PersistenceUnit
+    EntityManagerFactory emf;
+
+    @Test
+    public void fetchJoinNo() throws Exception{
+        em.flush();
+        em.clear();
+
+        Member findMember = queryFactory
+                .selectFrom(member)
+                .join(member.team, team).fetchJoin()//페치 조인 적용
+                .where(member.username.eq("member1"))
+                .fetchOne();
+
+        boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());//초기화가 되었는지 알려주는 녀석
+        assertThat(loaded).as("페치 조인 적용").isTrue();//페치 조인 적용시 true 아닐시 false
     }
 }
